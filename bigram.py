@@ -79,6 +79,17 @@ class Head(nn.Module):
         v = self.value(x) # (B, T, C)
         out = wei @ v # (B, T, T) @ (B, T, C) -> (B, T, C)
         return out
+    
+
+class MultiHeadAttention(nn.Module):
+    """ multiple heads of self-attention in parallel"""
+
+    def __init__(self, num_heads, head_size):
+        super().__init__()
+        self.heads = nn.ModuleList([Head(head_size) for _ in range(num_heads)])
+
+    def forward(self, x):
+        return torch.cat([h(x) for h in self.heads], dim = -1)
 
 
 class BigramLanguageModel(nn.Module):
@@ -87,7 +98,7 @@ class BigramLanguageModel(nn.Module):
         # each token directly reads off the logits for the next token from a lookup table, its like what token is most probable to come next when idx is given
         self.token_embedding_table = nn.Embedding(vocab_size, n_embed)
         self.position_embedding_table = nn.Embedding(block_size, n_embed)
-        self.sa_head = Head(n_embed)
+        self.sa_heads = MultiHeadAttention(4, n_embed//4) # 4 heads of 8-dimensional self-attention
         self.lm_head = nn.Linear(n_embed, vocab_size)
 
     def forward(self, idx, targets=None):
@@ -97,8 +108,8 @@ class BigramLanguageModel(nn.Module):
         # idx and targets -> (B, T)
         token_emb = self.token_embedding_table(idx) # -> (B, T, C) (batch, time(context), channel(not vocab size))
         pos_emb = self.position_embedding_table(torch.arange(T, device=device)) # (T,C)
-        x = token_emb + pos_emb
-        x = self.sa_head(x)
+        x = token_emb + pos_emb 
+        x = self.sa_heads(x)
         logits = self.lm_head(x) #(B, T, vocab_size)
         if targets is None:
             loss = None
@@ -132,7 +143,7 @@ m = model.to(device)
 
 optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 
-for iter in range(max_iters):
+for iter in range(max_iters): 
 
     if iter % eval_interval == 0:
         losses = estimate_loss()
